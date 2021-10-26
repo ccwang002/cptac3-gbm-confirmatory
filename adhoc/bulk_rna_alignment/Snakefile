@@ -113,7 +113,7 @@ rule star_align:
     input: unpack(find_sample_fastqs)
     params:
         star_ix=STAR_INDEX_FOLDER,
-        out_folder='/star/{sample}/',
+        out_folder='star/{sample}/',
         outSAMattrRGline=create_rg_line
     log: 'logs/star/{sample}.log'
     threads: 8
@@ -230,81 +230,62 @@ rule gzip_star_chimeric_junction:
     shell: "gzip -9n -c {input} > {output}"
 
 
+def expand_to_all_samples(patterns):
+    return {
+        name: expand(pattern, sample=SAMPLES)
+        for name, pattern in patterns.items()
+    }
+
 
 rule star_align_all_samples:
     """Align all RNA-seq samples."""
     input:
-        all_genomic_bams=expand(rules.samtools_sort_star_bam.output[0], sample=SAMPLES),
-        all_genomic_bais=expand(rules.samtools_sort_star_bam.output[0] + '.bai', sample=SAMPLES),
-        all_chimeric_bams=expand(rules.samtools_sort_star_chimeric_bam.output[0], sample=SAMPLES),
-        all_chimeric_bais=expand(rules.samtools_sort_star_chimeric_bam.output[0] + '.bai', sample=SAMPLES),
-        all_quant_tx_bams=expand(rules.star_align.output.quant_tx_bam, sample=SAMPLES),
-        all_quant_tabs=expand(rules.gzip_star_quant_tab.output, sample=SAMPLES),
-        all_sj_tabs=expand(rules.gzip_star_sj_tab.output, sample=SAMPLES),
-        all_sj_chimeric_junctions=expand(rules.gzip_star_chimeric_junction.output, sample=SAMPLES)
+        **expand_to_all_samples({ \
+            "sorted_bams": rules.samtools_sort_star_bam.output[0], \
+            "sorted_bam_bais": rules.samtools_sort_star_bam.output[0] + '.bai', \
+            "chimeric_bams": rules.samtools_sort_star_chimeric_bam.output[0], \
+            "chimeric_bam_bais": rules.samtools_sort_star_chimeric_bam.output[0] + '.bai', \
+            "chimeric_junction_gzs": rules.gzip_star_chimeric_junction.output[0], \
+            "quant_tx_bams": rules.star_align.output.quant_tx_bam, \
+            "quant_gene_count_tab_gzs": rules.gzip_star_quant_tab.output[0], \
+            "sj_count_tab_gzs": rules.gzip_star_sj_tab.output[0] \
+        })
 
 
-def gen_bam_map(bam_pth_pattern):
-    """Generate the BAM map given the BAM file path pattern."""
-    # Generate BAM map
-    # (case, sample_type) -> bam_pth
-    bam_map = {}
-    for sample in SAMPLES:
-        case, sample_type = sample.split('_', 1)
-        bam_map[(case, sample_type)] = Path(bam_pth_pattern.format(sample=sample))
-    return bam_map
-
-
-def write_manifest(bam_map, manifest_pth):
-    """Output the BAM map to the given manifest path."""
-    columns = [
-        '# sample_name', 'case', 'disease', 'experimental_strategy', 'sample_type',
-        'data_path', 'filesize', 'data_format', 'reference', 'UUID', 'system'
-    ]
-    with open(manifest_pth, 'w') as f:
-        writer = csv.writer(f, dialect='excel-tab', lineterminator='\n')
-        writer.writerow(columns)  # Write header
-        for (case, sample_type), data_pth in bam_map.items():
-            if sample_type == 'blood_normal':
-                abbrv = 'N'
-            elif sample_type == 'tissue_normal':
-                abbrv = 'A'
-            elif sample_type == 'tumor':
-                abbrv = 'T'
-            else:
-                raise ValueError(f'Unknown sample type {sample_type}')
-            sample_name = f'{case}.RNA-Seq.{abbrv}.hg38-washu'
-            file_size = data_pth.stat().st_size
-
-            # Generate a new UUID
-            data_id = str(uuid.uuid4())
-
-            writer.writerow([
-                sample_name, case, 'GBM', 'RNA-Seq', sample_type,
-                str(data_pth), str(file_size), 'BAM', 'hg38', data_id, 'katmai',
-            ])
-
-
-
-rule gen_washu_bam_map:
+rule make_washu_output_manifest:
     """Generate the map of the custom aligned BAMs."""
     output:
-        unsorted_bam_map='tracked_results/washu_rnaseq_unsorted_bam_map.katmai.tsv',
-        sorted_bam_map='tracked_results/washu_rnaseq_sorted_bam_map.katmai.tsv'
-    input:
-        all_genomic_bams=expand(rules.samtools_sort_star_bam.output[0], sample=SAMPLES),
-        all_genomic_bais=expand(rules.samtools_sort_star_bam.output[0] + '.bai', sample=SAMPLES),
-        all_chimeric_bams=expand(rules.samtools_sort_star_chimeric_bam.output[0], sample=SAMPLES),
-        all_chimeric_bais=expand(rules.samtools_sort_star_chimeric_bam.output[0] + '.bai', sample=SAMPLES),
-        all_quant_tx_bams=expand(rules.star_align.output.quant_tx_bam, sample=SAMPLES),
-        all_quant_tabs=expand(rules.gzip_star_quant_tab.output, sample=SAMPLES),
-        all_sj_tabs=expand(rules.gzip_star_sj_tab.output, sample=SAMPLES),
-        all_sj_chimeric_junctions=expand(rules.gzip_star_chimeric_junction.output, sample=SAMPLES)
+        manifest='washu_rnaseq_alignment_summary.tsv'
+    input: rules.star_align_all_samples.input
     run:
-        for bam_pattern, manifest_pth in [
-                (rules.star_align.output.unsorted_bam, output.unsorted_bam_map),
-                (rules.star_align.output.sorted_bam, output.sorted_bam_map),
-        ]:
-            bam_map = gen_bam_map(bam_pattern)
-            write_manifest(bam_map, manifest_pth)
+        result_file_tpls = {
+            ('genomic', 'BAM'): rules.samtools_sort_star_bam.output[0],
+            ('transcriptome', 'BAM'): rules.star_align.output.quant_tx_bam,
+            ('chimeric', 'BAM'): rules.samtools_sort_star_chimeric_bam.output[0],
+            ('chimeric_junction', 'TSV'): rules.gzip_star_chimeric_junction.output[0],
+            ('STAR_gene_count_tab', 'TSV'): rules.gzip_star_quant_tab.output[0],
+            ('splic_junction_tab', 'TSV'): rules.gzip_star_sj_tab.output[0],
+        }
 
+        columns = [
+            'unique_run_id', 'preferred_sample_name', 'case_id',
+            'disease', 'experimental_strategy',
+            'data_format', 'result_type', 'reference',
+            'data_path', 'filesize',
+        ]
+        with open(output.manifest, 'w') as f:
+            writer = csv.writer(f, dialect='excel-tab', lineterminator='\n')
+            # Write column header
+            writer.writerow(columns)
+
+            # Write all generated output files
+            for run_id, sample_info in SAMPLE_INFO.items():
+                for (result_type, data_format), data_pth_fmt in result_file_tpls.items():
+                    data_pth = Path(data_pth_fmt.format(sample=run_id)).resolve()
+                    file_size = data_pth.stat().st_size
+                    writer.writerow([
+                        run_id, sample_info.preferred_sample_name, sample_info.case_id,
+                        'GBM', 'RNA-Seq',
+                        data_format, result_type, 'hg38',
+                        str(data_pth), str(file_size),
+                    ])
