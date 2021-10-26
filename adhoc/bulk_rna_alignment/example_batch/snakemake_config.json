@@ -1,0 +1,6 @@
+{
+    "sample_table": "example_samples_with_rna_raw_fastqs.tsv",
+    "file_map": "example_file_map.tsv",
+    "star_index": "/diskmnt/Datasets/Reference/GDC/star_genome_d1_vd1_gtfv22.rebuild",
+    "workflow_root": "/diskmnt/Projects/Users/lwang/CPTAC3_GBM_confirmatory/adhoc/bulk_rna_alignment"
+}
