@@ -13,7 +13,8 @@
 ## Pipeline execution
 
     # Set the temp folder to store BAM intermidate files
-    export TMPDIR=$PWD
+    mkdir $PWD/tmp
+    export TMPDIR=$PWD/tmp
 
     # Generate output manifest
     snakemake \
@@ -27,3 +28,5 @@
     # Run STAR alignment
     # (copy the extra snakemake params from above to ...)
     snakemake ... make_washu_output_manifest
+
+The manifest containing all output files is available at `washu_rnaseq_alignment_summary.tsv`.
