@@ -16,7 +16,7 @@
     mkdir $PWD/tmp
     export TMPDIR=$PWD/tmp
 
-    # Generate output manifest
+    # Run STAR alignment and Generate output manifest
     snakemake \
         --configfile=snakemake_config.json \
         -s /diskmnt/Projects/Users/lwang/CPTAC3_GBM_confirmatory/adhoc/bulk_rna_alignment/Snakefile \
@@ -24,9 +24,5 @@
         --resources io_heavy=2 \
         -- \
         make_washu_output_manifest
-
-    # Run STAR alignment
-    # (copy the extra snakemake params from above to ...)
-    snakemake ... make_washu_output_manifest
 
 The manifest containing all output files is available at `washu_rnaseq_alignment_summary.tsv`.
