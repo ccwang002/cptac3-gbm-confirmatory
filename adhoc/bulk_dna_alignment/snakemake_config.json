@@ -1,0 +1,6 @@
+{
+    "sample_list": "samples.list",
+    "file_map": "example_file_map.tsv",
+    "workflow_root": "/diskmnt/Projects/Users/lwang/CPTAC3_GBM_confirmatory/adhoc/bulk_dna_alignment",
+    "bwa_index_prefix": "/diskmnt/Datasets/Reference/GRCh38.d1.vd1/GRCh38.d1.vd1.fa"
+}
