@@ -1,0 +1,6 @@
+bam_to_fastqs
+readgroup_bam
+merged_bam
+mark_dup_bam
+logs
+tmp*

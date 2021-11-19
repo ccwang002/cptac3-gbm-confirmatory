@@ -20,7 +20,7 @@ class SampleInfo:
     """Class to keep track of the sample info."""
     sample_name: str
     case_id: str
-    diesase: str
+    disease: str
     experimental_strategy: str  # WXS or WGS
     gdc_catalog_sample_type: str    # T, N, A, or T.RRNA_rk3EEVp
     sample_type: str    # tumor, blood_normal, tissue_normal
@@ -52,7 +52,7 @@ with open(FILE_MAP_PTH) as f:
             raise ValueError(f"Could not parse sample name for {sample_name}")
 
         raw_bam_uuid = row['UUID']
-        raw_bam_pth = row['data_path']
+        raw_bam_pth = Path(row['data_path'])
         assert raw_bam_pth.exists()
 
         SAMPLE_INFO[sample_name] = SampleInfo(
@@ -174,7 +174,7 @@ rule picard_merge_readgroup_bams_of_one_sample:
     resources:
         mem_mb=8000,  # Merging sorted BAMs only takes <1GB of memory
         io_heavy=1
-    log: 'logs/picard_merge_bams/{seq_type}/{sample}.log'
+    log: 'logs/picard_merge_bams/{sample}.log'
     shell:
         "picard -Xmx{resources.mem_mb}m MergeSamFiles "
         "ASSUME_SORTED=false "

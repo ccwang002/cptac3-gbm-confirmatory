@@ -3,11 +3,13 @@
 
 ## Installation
 
-    conda create -n gbm_gdc_rna \
+    conda create -n gbm_gdc_dna \
         python=3.9 \
         snakemake-minimal=6.10.0 \
         samtools=1.10 htslib=1.10 \
-        star=2.6.1d
+        biobambam=2.0.87 \
+        bwa=0.7.17 \
+        picard=2.19.0
 
 
 ## Pipeline execution
@@ -16,13 +18,16 @@
     mkdir $PWD/tmp
     export TMPDIR=$PWD/tmp
 
-    # Run STAR alignment and Generate output manifest
+    # Run DNA alignment and Generate output manifest
     snakemake \
         --configfile=snakemake_config.json \
-        -s /diskmnt/Projects/Users/lwang/CPTAC3_GBM_confirmatory/adhoc/bulk_rna_alignment/Snakefile \
-        -j 32 --restart-times 2 \
-        --resources io_heavy=2 \
+        -s /diskmnt/Projects/Users/lwang/CPTAC3_GBM_confirmatory/adhoc/bulk_dna_alignment/Snakefile \
+        -j 50 --restart-times 2 \
+        --resources io_heavy=4 \
         -- \
         make_washu_output_manifest
 
-The manifest containing all output files is available at `washu_rnaseq_alignment_summary.tsv`.
+    # Clean up the FASTQs
+    rm -rf bam_to_fastqs/*
+
+The manifest containing all output files is available at `washu_dnaseq_alignment_summary.tsv`.
