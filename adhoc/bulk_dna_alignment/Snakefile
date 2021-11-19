@@ -21,6 +21,7 @@ class SampleInfo:
     sample_name: str
     case_id: str
     diesase: str
+    experimental_strategy: str  # WXS or WGS
     gdc_catalog_sample_type: str    # T, N, A, or T.RRNA_rk3EEVp
     sample_type: str    # tumor, blood_normal, tissue_normal
     raw_bam_uuid: str
@@ -41,6 +42,7 @@ with open(FILE_MAP_PTH) as f:
         sample_name = row['# sample_name']
         case_id = row['case']
         disease = row['disease']
+        experimental_strategy = row['experimental_strategy']
         sample_type = row['sample_type']
 
         # Parse Matt's sample name
@@ -57,6 +59,7 @@ with open(FILE_MAP_PTH) as f:
             sample_name=sample_name,
             case_id=case_id,
             disease=disease,
+            experimental_strategy=experimental_strategy,
             gdc_catalog_sample_type=gdc_catalog_sample_type,
             sample_type=sample_type,
             raw_bam_uuid=raw_bam_uuid,
@@ -235,7 +238,7 @@ rule picard_mark_dup_all_samples:
 rule make_washu_output_manifest:
     """Generate the map of the custom aligned BAMs."""
     output:
-        manifest='washu_rnaseq_alignment_summary.tsv'
+        manifest='washu_dnaseq_alignment_summary.tsv'
     input: rules.picard_mark_dup_all_samples.input
     run:
         result_file_tpls = {
@@ -246,9 +249,8 @@ rule make_washu_output_manifest:
             # This column is to be compaible to Matt's BAM map .dat file,
             # though its format is not the same.
             '# sample_name',
-            'unique_run_id', 'preferred_sample_name', 'case_id',
-            'disease', 'experimental_strategy',
-            'data_format', 'result_type', 'reference',
+            'case', 'disease', 'experimental_strategy',
+            'data_format', 'reference',
             'data_path', 'filesize',
             'UUID',  # also to be compatible to Matt's BAM map
         ]
@@ -258,18 +260,19 @@ rule make_washu_output_manifest:
             writer.writerow(columns)
 
             # Write all generated output files
-            for run_id, sample_info in SAMPLE_INFO.items():
-                for (result_type, data_format), data_pth_fmt in result_file_tpls.items():
+            for sample_name, sample_info in SAMPLE_INFO.items():
+                for data_format, data_pth_fmt in result_file_tpls.items():
                     # Create sample_name column compatible to Matt's BAM map
-                    matt_sample_name = f"{run_id}.RNA-Seq.{result_type}.hg38.{sample_info.gdc_catalog_sample_type}"
+                    new_sample_name = f"{sample_name}.hg38"
 
-                    data_pth = Path(data_pth_fmt.format(sample=run_id)).resolve()
+                    data_pth = Path(data_pth_fmt.format(sample=sample_name)).resolve()
                     file_size = data_pth.stat().st_size
                     writer.writerow([
-                        matt_sample_name,
-                        run_id, sample_info.preferred_sample_name, sample_info.case_id,
-                        'GBM', 'RNA-Seq',
-                        data_format, result_type, 'hg38',
+                        new_sample_name,
+                        sample_info.case_id,
+                        sample_info.disease,
+                        sample_info.experimental_strategy,
+                        data_format, 'hg38',
                         str(data_pth), str(file_size),
                         "WUSTL-ADHOC-OUTPUT-NOT-TRACKED-BY-GDC"  # A fake UUID
                     ])
