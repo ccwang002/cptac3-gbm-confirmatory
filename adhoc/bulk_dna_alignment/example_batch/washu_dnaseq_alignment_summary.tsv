@@ -1,0 +1,3 @@
+# sample_name	case	disease	experimental_strategy	data_format	reference	data_path	filesize	UUID
+C3N-05991.WXS.N.hg38	C3N-05991	GBM	WXS	BAM	hg38	/diskmnt/Projects/Users/lwang/CPTAC3_GBM_confirmatory/adhoc/bulk_dna_alignment/example_batch/mark_dup_bam/C3N-05991.WXS.N.bam	18143691903	WUSTL-ADHOC-OUTPUT-NOT-TRACKED-BY-GDC
+C3N-05991.WXS.T.hg38	C3N-05991	GBM	WXS	BAM	hg38	/diskmnt/Projects/Users/lwang/CPTAC3_GBM_confirmatory/adhoc/bulk_dna_alignment/example_batch/mark_dup_bam/C3N-05991.WXS.T.bam	12701435258	WUSTL-ADHOC-OUTPUT-NOT-TRACKED-BY-GDC
