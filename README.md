@@ -3,3 +3,4 @@
 ## Folder structure
 
     adhoc       All adhoc processing
+    analysis    Analyses code

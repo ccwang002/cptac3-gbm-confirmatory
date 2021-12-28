@@ -1,0 +1,64 @@
+---
+title: "Untitled"
+output: 
+    html_document:
+        df_print: paged
+---
+
+```{r, message=FALSE}
+library(here)
+library(fs)
+library(SummarizedExperiment)
+library(tidyverse)
+```
+
+```{r}
+all_samples_tbl = read_tsv(here('resouces/study_design/cptac3_gbm_confirmatory_all_samples.tsv'))
+all_samples_tbl %>% head()
+```
+
+
+```{r}
+samples_tbl = read_tsv(
+    '/data/dna_methyl/batch1219/GBM_sample_batch1221.txt',
+    col_names = c("sample_name", "case_id", "disease", "uuid")
+)
+```
+
+
+```{r}
+hg19_pths = fs::dir_ls('/data/dna_methyl/batch1219/Processed/', glob = '*.csv.zst')
+hg38_pths = fs::dir_ls('/data/dna_methyl/batch1219/Processed/Processed_hg38_remap/', glob = '*.csv.zst')
+
+length(hg19_pths)
+length(hg38_pths)
+```
+
+```{r}
+hg19_beta_tbl = read_csv(pipe(paste("zstdcat", hg19_pths[[1]])))
+hg38_beta_tbl = read_csv(pipe(paste("zstdcat", hg38_pths[[1]])))
+```
+
+```{r}
+nrow(hg19_beta_tbl)
+nrow(hg38_beta_tbl)
+```
+
+```{r}
+uniq_hg19_probe_ids = setdiff(hg19_beta_tbl$Locus, hg38_beta_tbl$Locus)
+uniq_hg19_probe_ids %>% length()
+setdiff(hg38_beta_tbl$Locus, hg19_beta_tbl$Locus) %>% length()
+```
+
+```{r}
+hg19_beta_tbl %>% 
+    filter(Locus %in% uniq_hg19_probe_ids)
+```
+
+The probes are duplicated during the annotation process:
+```{r}
+dedup_hg38_probe_ids = hg38_beta_tbl$Locus %>% unique() 
+length(dedup_hg38_probe_ids) + length(uniq_hg19_probe_ids) == nrow(hg19_beta_tbl)
+```
+
+We will use hg19 probe values and change the annotations to hg38 ourselves.
