@@ -1,0 +1,221 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+```{r, message=FALSE}
+library(here)
+library(fs)
+library(SummarizedExperiment)
+library(tidyverse)
+```
+
+
+Load CPTAC3 GBM confirmatory study design (sample names etc)
+```{r}
+all_samples_tbl = read_tsv(here('resouces/study_design/cptac3_gbm_confirmatory_all_samples.tsv'))
+all_samples_tbl %>% head()
+```
+
+
+## DNA methyl. mircoarray annotation
+Read EPIC methylation array hg38 manifest and annotation from <https://zwdzwd.github.io/InfiniumAnnotation>
+```{r}
+# Details about the probe design
+EPIC_manifest = readRDS('annotations/EPIC.hg38.manifest.rds')
+# Annotation
+EPIC_anno = readRDS('annotations/EPIC.hg38.manifest.gencode.v22.rds')
+```
+
+
+
+
+## Create sample metadata
+The sample table is originally from `/diskmnt/Projects/cptac_scratch/CPTAC3_analysis/Methylation_hg38/batch1219/GBM_sample_batch1221.txt`. But we need the sample naming for the confirmatory cohort
+```{r}
+read_tsv(
+    '/data/dna_methyl/batch1219/GBM_sample_batch1221.txt',
+    col_names = c("sample_name", "case_id", "disease", "uuid")
+) %>%
+    head()
+```
+
+
+Additional information was added from GDC catalog and saved to `gbm_confirm_dna_methyl_gdc_catalog.tsv.gz`
+```{r}
+samples_tbl = read_tsv('gbm_confirm_dna_methyl_gdc_catalog.tsv.gz') %>%
+    rename(case_id = case, aliquot_id = aliquot) %>%
+    mutate(
+        channel = str_c("channel", str_to_lower(result_type), "uuid", sep = "_"),
+        sample_id = str_replace_all(sample_id, glue::glue(",{case_id}"), ",")
+    ) %>%
+    pivot_wider(
+        id_cols = c("case_id", "aliquot_id", "sample_id", "short_sample_type"),
+        names_from = "channel", 
+        values_from = "UUID"
+    )
+
+samples_tbl %>% head()
+```
+
+We use sample id to map to the confirmatory sample naming, though some sample ids are not 1-to-1 mappings:
+```{r}
+samples_tbl$sample_id %>% setdiff(all_samples_tbl$parent_sample_ids)
+```
+
+Those IDs above requires manual checks. Create sample metadata
+```{r}
+meta_tbl = samples_tbl %>%
+    mutate(proteome_parent_sample_ids = case_when(
+        sample_id == "C3L-04081-01" ~ "C3L-04081-01,-02,-03",
+        sample_id == "C3L-07611-02" ~ "C3L-07611-02,-03",
+        sample_id == "C3N-03026-01" ~ "C3N-03026-01,-02,-04",
+        sample_id == "C3N-03446-02" ~ "C3N-03446-02,-03,-05",
+        TRUE ~ sample_id
+    )) %>%
+    rename(dna_methyl_parent_sample_ids = sample_id) %>%
+    left_join(
+        all_samples_tbl,
+        by = c("case_id", "proteome_parent_sample_ids" = "parent_sample_ids")
+    ) %>%
+    # Assume the no sample is run twice
+    mutate(unique_run_id = preferred_sample_name) %>%
+    select(unique_run_id, preferred_sample_name, case_id, sample_type, is_oct, tumor_occurrence_sequence, 
+           aliquot_id, dna_methyl_parent_sample_ids, proteome_parent_sample_ids,
+           ends_with('uuid'))
+
+meta_tbl
+```
+
+Make sure no sample is duplicated
+```{r}
+stopifnot(meta_tbl %>% count(preferred_sample_name) %>% filter(n > 1) %>% nrow() == 0)
+```
+
+
+
+## Collect DNA methyl. beta values
+We will use hg19 beta values as they are not duplicated.
+```{r}
+pth_tbl = tibble(hg19_pth = fs::dir_ls('/data/dna_methyl/batch1219/Processed/', glob = '*.csv.zst')) %>%
+    mutate(filename = fs::path_file(hg19_pth)) %>%
+    extract(
+        filename, 
+        c("case_id", "aliquot_id"), 
+        "^([-\\S]+)\\.\\S+\\.(\\S+).csv.zst$", 
+    )
+
+pth_tbl %>% head()
+```
+
+Efficient probe value reader
+```{r}
+read_only_beta_vals = function(zstd_pth) {
+    read_csv(
+        pipe(paste("zstdcat", zstd_pth)),
+        col_types = cols_only(
+            Locus = col_character(),
+            Beta = col_double()
+        )
+    )
+}
+```
+
+```{r}
+demo_beta_tbl = read_only_beta_vals(pth_tbl$hg19_pth[[1]])
+demo_beta_tbl %>% head()
+```
+
+Read all samples
+```{r}
+beta_tbls = pth_tbl$hg19_pth %>%
+    set_names(pth_tbl$aliquot_id) %>%
+    map(read_only_beta_vals)
+```
+
+Make sure all the samples have the same order of probes
+```{r}
+stopifnot(every(
+    beta_tbls,
+    ~ identical(.x$Locus, beta_tbls[[1]]$Locus)
+))
+```
+
+Combine all values
+```{r}
+mat = beta_tbls %>%
+    map_dfc(~ .x$Beta) %>%
+    as.matrix()
+
+rownames(mat) = beta_tbls[[1]]$Locus
+
+# re-order based on the metadata
+mat = mat[, meta_tbl$aliquot_id]
+# rename the samples
+colnames(mat) = meta_tbl$unique_run_id
+```
+
+Only keep the probes that passed the filters and are included in the experiment
+```{r}
+selected_probe_ids = intersect(
+    beta_tbls[[1]]$Locus, 
+    EPIC_manifest %>% subset(!MASK_general) %>% names()
+)
+length(selected_probe_ids)
+```
+
+```{r}
+selected_probes_anno_gr = EPIC_anno[selected_probe_ids, ]
+selected_probes_anno_gr
+```
+
+
+
+## Detection p-values
+```{r}
+pval_mat = read_csv('/data/dna_methyl/batch1219/Processed/Probewise_pValues.csv') %>%
+    column_to_rownames('...1') %>%
+    as.matrix()
+
+# re-order based on the metadata
+pval_mat = pval_mat[, meta_tbl$aliquot_id]
+# rename the samples
+colnames(pval_mat) = meta_tbl$unique_run_id
+```
+
+
+
+## Create the SummarizedExperiment object
+```{r}
+methyl_se = SummarizedExperiment(
+    rowRanges = selected_probes_anno_gr,
+    colData = meta_tbl %>% column_to_rownames('unique_run_id'),
+    assays = list(
+        beta_val=mat[selected_probe_ids, ],
+        detect_pval=pval_mat[selected_probe_ids, ]
+    ),
+    metadata = list(
+        cohort = 'CPTAC3 GBM confirmatory cohort',
+        description = 'Beta values and probe-wise detection p-values of Illumina EPIC DNA methylation microarry',
+        pipeline = str_c(
+            'Based on the outputs from Ding Lab CPTAC methylation pipeline v1.1 ',
+            'at https://github.com/ding-lab/cptac_methylation. ',
+            'Probes were further filtered, keeping MASK_general == FALSE probes based on the annotation ',
+            'from https://zhouserver.research.chop.edu/InfiniumAnnotation/20180909/EPIC/EPIC.hg38.manifest.rds. ',
+            'More information about the annotation ',
+            'at https://zwdzwd.github.io/InfiniumAnnotation (DOI: 10.1093/nar/gkw967)'
+        ),
+        annotation = str_c(
+            'Based on GENCODE v22 ',
+            'from https://zhouserver.research.chop.edu/InfiniumAnnotation/20180909/EPIC/EPIC.hg38.manifest.gencode.v22.rds'
+        )
+    )
+)
+
+methyl_se
+```
+
+```{r}
+saveRDS(methyl_se, 'gbm_confirm_dna_methyl.rds')
+```
+
